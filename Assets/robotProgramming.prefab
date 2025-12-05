@@ -3416,9 +3416,6 @@ MonoBehaviour:
   - {fileID: 212652224150209140}
   - {fileID: 212394852875316352}
   displayShapesObject: {fileID: 1055212971360008}
-  TwitchHelpMessage: '"!{0} left/right/up/down/l/r/u/d" to press that button. "!{0}
-    block red/yellow/green/blue/r/y/g/b" to block that color. "!{0} reset" to reset
-    the program. "!{0} start" to start the program. "!{0} colorblind" to toggle colorblind.'
 --- !u!114 &114064706984708464
 MonoBehaviour:
   m_ObjectHideFlags: 1

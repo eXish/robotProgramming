@@ -333,7 +333,8 @@ public class robotProgramming : MonoBehaviour
         bool crashes = isRobotColliding(currentRobot, !willStrike); //!willStrike makes it only log the first crash
         if (!willStrike) //prevents extraneous moves from being animated/counted for the most recent behavior, because it'll strike before it gets to the move anyway
         {
-            animationQueue.Enqueue(new AnimationRequest(index, outputDirection, crashes));
+            bool oob = currentRobot.Position.x < 0 || currentRobot.Position.x > 8 || currentRobot.Position.y < 0 || currentRobot.Position.y > 8;
+            animationQueue.Enqueue(new AnimationRequest(index, outputDirection, crashes, oob));
             if (!crashes)
             {
                 currentRobot.LastPosition = currentRobot.Position;
@@ -460,16 +461,16 @@ public class robotProgramming : MonoBehaviour
         if (currentlyAnimating || moduleSolved)
             return;
 
-        resetVariables(false);
+        resetVariables(-1);
     }
 
-    void resetVariables(bool struck)
+    void resetVariables(int strikeType)
     {
-        if (!struck)
+        if (strikeType == -1)
             LogMsg("Reset.");
-        Debug.LogFormat("<Robot Programming #{0} R2D2 now acts like {1}.", ModuleId, initialR2D2Behavior ? "HAL" : "ROB");
-        Debug.LogFormat("<Robot Programming #{0} Fender now starts at the {1} character.", ModuleId, placeNames[initialCharacterIndex]);
-        Debug.LogFormat("<Robot Programming #{0} The LED is now {1}.", ModuleId, ((RobotColor) initialColorIndex).ToString());
+        Debug.LogFormat("<Robot Programming #{0}> R2D2 now acts like {1}.", ModuleId, initialR2D2Behavior ? "HAL" : "ROB");
+        Debug.LogFormat("<Robot Programming #{0}> Fender now starts at the {1} character.", ModuleId, placeNames[initialCharacterIndex]);
+        Debug.LogFormat("<Robot Programming #{0}> The LED is now {1}.", ModuleId, ((RobotColor) initialColorIndex).ToString());
         inputNames.Clear();
 
         //reset everything to what it initially was
@@ -488,12 +489,12 @@ public class robotProgramming : MonoBehaviour
             Debug.LogFormat("<Robot Programming #{0}> {1} ({2}) is now at {3}, {4}.", ModuleId, sortedRobots[i].Type.ToString(), ((RobotColor) i).ToString(), sortedRobots[i].Position.x + 1, sortedRobots[i].Position.y + 1);
         }
 
-        displayText.text = (struck ? "[ERROR]" : "[RESET]") + "\n R2D2: " + (R2D2actsLikeHAL ? "HAL" : "ROB") + "\nFender: " + placeNames[serialCharacterIndex] + "\n" + (topIndex + 1) + " " + (bottomIndex + 1) + "\n";
+        displayText.text = (strikeType == 0 ? "[ERROR]" : strikeType == 1 ? "[OOC]" : strikeType == 2 ? "[OOB]" : "[RESET]") + "\n R2D2: " + (R2D2actsLikeHAL ? "HAL" : "ROB") + "\nFender: " + placeNames[serialCharacterIndex] + "\n" + (topIndex + 1) + " " + (bottomIndex + 1) + "\n";
         displayShapesObject.SetActive(true);
         willStrike = false;
     }
 
-    void handleStrike(RobotColor ledColor)
+    void handleStrike(RobotColor ledColor, int strikeType)
     {
         willStrike = true; //ensures willStrike is true (wouldn't be the case if the reason the mod is striking is because the robots aren't in goal positions)
         module.HandleStrike();
@@ -508,7 +509,7 @@ public class robotProgramming : MonoBehaviour
             sortedRobots[i].InitialPosition = sortedRobots[i].LastPosition;
         }
 
-        resetVariables(true);
+        resetVariables(strikeType);
     }
 
     void handleSolve()
@@ -519,6 +520,7 @@ public class robotProgramming : MonoBehaviour
         bombAudio.PlaySoundAtTransform("solve", transform);
 
         LedRenderer.material = unlitColorMaterials[4];
+        colorblindLEDText.text = "";
         displayText.text = "[SOLVED!]";
     }
 
@@ -578,10 +580,12 @@ public class robotProgramming : MonoBehaviour
     {
         currentlyAnimating = true;
         int animationsDone = 0;
+        int lastMovedRobot = -1;
 
         while (animationQueue.Count > 0)
         {
             var request = animationQueue.Dequeue();
+            lastMovedRobot = request.RobotIndex;
             GameObject robotObject = sortedRobotObjects[request.RobotIndex];
             Vector3 startPosition = robotObject.transform.localPosition;
             Vector3 endPosition = new Vector3(Mathf.Lerp(-0.07345f, 0.00635f, sortedRobots[request.RobotIndex].Position.x / 8f), 0f, Mathf.Lerp(0.04f, -0.04f, sortedRobots[request.RobotIndex].Position.y / 8f));
@@ -611,7 +615,7 @@ public class robotProgramming : MonoBehaviour
                     robotObject.transform.localPosition = Vector3.Lerp(startPosition, endPosition, t);
                     yield return new WaitForSeconds(.01f);
                 }
-                handleStrike((RobotColor) request.RobotIndex);
+                handleStrike((RobotColor) request.RobotIndex, request.OOB ? 2 : 0);
                 while (t > 0)
                 {
                     t -= .05f;
@@ -639,7 +643,16 @@ public class robotProgramming : MonoBehaviour
         else
         {
             LogMsg("The program didn't bring all robots to the goal. Strike!");
-            handleStrike(notBlockedColors[currentColorIndex]);
+            int nextRobotTurn = lastMovedRobot + 1;
+            if (lastMovedRobot == -1) nextRobotTurn = initialColorIndex;
+            for (int i = nextRobotTurn; i < nextRobotTurn + 4; i++)
+            {
+                if (!isRobotStuck(sortedRobots[i % 4]))
+                {
+                    handleStrike(sortedRobots[i % 4].Color, 1);
+                    break;
+                }
+            }
         }
 
         currentlyAnimating = false;
@@ -676,10 +689,11 @@ public class robotProgramming : MonoBehaviour
             for (int i = 0; i < 4; i++)
             {
                 setColorblindText(colorblindRobotTexts[i], robotColors[i]);
+                if (robotShapes[i] == Shape.Triangle)
+                    colorblindRobotTexts[i].transform.localPosition = new Vector3(0f, -0.00192f, -0.0043f);
             }
-            setColorblindText(colorblindLEDText, notBlockedColors[currentColorIndex]);
+            updateLed();
             colorblindOtherText.SetActive(true);
-            updateDisplay();
         }
         else
         {
@@ -689,7 +703,6 @@ public class robotProgramming : MonoBehaviour
             }
             colorblindLEDText.text = "";
             colorblindOtherText.SetActive(false);
-            updateDisplay();
         }
     }
 
